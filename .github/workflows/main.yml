@@ -48,7 +48,7 @@ jobs:
           path: build/src/gamescope
           retention-days: 90
 
-   build-deb:
+  build-deb:
     name: DEB Package Build
     runs-on: ubuntu-latest
     container: debian:trixie
