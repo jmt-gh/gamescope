@@ -8,7 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: debian:trixie  # Changed to Debian 13
+    container: debian:trixie
     steps:
       - name: Prepare
         run: |
@@ -21,13 +21,13 @@ jobs:
             libxtst-dev libxmu-dev hwdata libseat-dev libliftoff-dev \
             libei-dev libdecor-0-plugin-1-cairo cmake libx11-dev \
             libsdl2-dev libxcb1-dev libxcb-composite0-dev libxcb-res0-dev \
-            libxcb-ewmh-dev libxcb-icccm4-dev
+            libxcb-ewmh-dev libxcb-icccm4-dev luajit libluajit-5.1-dev
       - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: Build
         run: |
-          meson setup build/ --prefix=/usr --buildtype=release
+          meson setup build/ --prefix=/usr --buildtype=release -Denable_openvr_support=false
           ninja -C build/
       
       - name: Upload gamescope binary
