@@ -32,14 +32,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          
       - name: Build
         run: |
           meson setup build/ --prefix=/usr --buildtype=release -Denable_openvr_support=false
           ninja -C build/
       
+      - name: Find gamescope binary
+        run: |
+          find build/ -name gamescope -type f
+      
       - name: Upload gamescope binary
         uses: actions/upload-artifact@v4
         with:
           name: gamescope-debian13-amd64
-          path: build/gamescope
+          path: build/**/gamescope
           retention-days: 90
