@@ -148,24 +148,33 @@ jobs:
           DESTDIR=$PWD/install-tmp ninja -C build/ install
           
           mkdir -p package/DEBIAN package/usr/bin package/usr/lib/gamescope
+          mkdir -p package/usr/share/vulkan/implicit_layer.d
           
           # Copy all installed binaries
           cp install-tmp/usr/bin/gamescope package/usr/bin/
           chmod +x package/usr/bin/gamescope
           
-          # Copy gamescopereaper (should be installed now)
+          # Copy gamescopereaper
           if [ -f install-tmp/usr/bin/gamescopereaper ]; then
             cp install-tmp/usr/bin/gamescopereaper package/usr/bin/
             chmod +x package/usr/bin/gamescopereaper
-          else
-            echo "WARNING: gamescopereaper not found in install"
-            ls -la install-tmp/usr/bin/
           fi
           
-          # Also copy gamescopectl if present
+          # Copy gamescopectl
           if [ -f install-tmp/usr/bin/gamescopectl ]; then
             cp install-tmp/usr/bin/gamescopectl package/usr/bin/
             chmod +x package/usr/bin/gamescopectl
+          fi
+          
+          # Copy Vulkan WSI layers (CRITICAL FOR HDR!)
+          if [ -d install-tmp/usr/share/vulkan ]; then
+            cp -r install-tmp/usr/share/vulkan/* package/usr/share/vulkan/
+          fi
+          
+          # Copy WSI layer shared libraries
+          if [ -d install-tmp/usr/lib/x86_64-linux-gnu ]; then
+            mkdir -p package/usr/lib/gamescope
+            find install-tmp/usr/lib -name "*gamescope*wsi*.so" -exec cp {} package/usr/lib/gamescope/ \;
           fi
           
           # Find and copy all non-system shared libraries for gamescope
@@ -193,6 +202,13 @@ jobs:
             fi
           done
           
+          # Patch WSI layer libraries too
+          for lib in package/usr/lib/gamescope/*wsi*.so; do
+            if [ -f "$lib" ]; then
+              patchelf --set-rpath '$ORIGIN' "$lib" || true
+            fi
+          done
+          
           cat > package/DEBIAN/control <<EOF
           Package: gamescope-vendored
           Version: 999.$(date +%Y%m%d)
@@ -205,10 +221,11 @@ jobs:
            .
            This package includes vendored copies of most dependencies for
            maximum portability across Debian-based systems.
+           .
+           Includes Vulkan WSI layer for HDR support.
           EOF
           
-          dpkg-deb --build package gamescope-vendored.deb
-      
+          dpkg-deb --build package gamescope-vendored.deb      
       - name: Upload vendored DEB package
         uses: actions/upload-artifact@v4
         with:
