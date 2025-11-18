@@ -5,8 +5,10 @@ on:
   pull_request:
     branches: [ master ]
   workflow_dispatch:
+
 jobs:
-  build:
+  build-standard:
+    name: Standard Build
     runs-on: ubuntu-latest
     container: debian:trixie
     steps:
@@ -29,22 +31,187 @@ jobs:
             libxcb-xfixes0-dev libxshmfence-dev libxcb-sync-dev \
             libxcb-randr0-dev libxcb-image0-dev \
             liblcms2-dev xwayland
+      
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-          
+      
       - name: Build
         run: |
           meson setup build/ --prefix=/usr --buildtype=release -Denable_openvr_support=false
           ninja -C build/
       
-      # - name: Find gamescope binary
-      #   run: |
-      #     find build/ -name gamescope -type f
-      
-      - name: Upload gamescope binary
+      - name: Upload standard binary
         uses: actions/upload-artifact@v4
         with:
-          name: gamescope-debian13-amd64
+          name: gamescope-standard-binary
           path: build/src/gamescope
+          retention-days: 90
+
+  build-deb:
+    name: DEB Package Build
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    steps:
+      - name: Prepare
+        run: |
+          apt-get update
+          apt-get install -y \
+            git meson ninja-build gcc g++ pkg-config cmake \
+            libwayland-dev wayland-protocols libxkbcommon-dev \
+            libcap-dev libdrm-dev libvulkan-dev glslang-tools \
+            libpipewire-0.3-dev libdisplay-info-dev libavif-dev \
+            libdecor-0-dev libinput-dev libxdamage-dev \
+            libxcomposite-dev libxrender-dev libxres-dev \
+            libxtst-dev libxmu-dev hwdata libseat-dev \
+            libliftoff-dev libei-dev libdecor-0-plugin-1-cairo \
+            libx11-dev libsdl2-dev libxcb1-dev libxcb-composite0-dev \
+            libxcb-res0-dev libxcb-ewmh-dev libxcb-icccm4-dev \
+            luajit libluajit-5.1-dev libx11-xcb-dev libpixman-1-dev \
+            libxcb-dri3-dev libxcb-present-dev libxcb-shm0-dev \
+            libxcb-xfixes0-dev libxshmfence-dev libxcb-sync-dev \
+            libxcb-randr0-dev libxcb-image0-dev \
+            liblcms2-dev xwayland dpkg-dev
+      
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Build
+        run: |
+          meson setup build/ --prefix=/usr --buildtype=release -Denable_openvr_support=false
+          ninja -C build/
+      
+      - name: Create DEB package
+        run: |
+          mkdir -p package/DEBIAN package/usr/bin
+          cp build/src/gamescope package/usr/bin/
+          chmod +x package/usr/bin/gamescope
+          
+          cat > package/DEBIAN/control <<EOF
+          Package: gamescope
+          Version: 999.$(date +%Y%m%d)
+          Architecture: amd64
+          Maintainer: GitHub Actions <actions@github.com>
+          Depends: libseat1, libwayland-client0, libdrm2, libvulkan1, libx11-6, libpipewire-0.3-0, libxkbcommon0, libcap2, libinput10, libpixman-1-0, liblcms2-2, libavif16, libsdl2-2.0-0, libxcb1, libx11-xcb1, luajit, xwayland
+          Description: SteamOS session compositing window manager
+           Gamescope is a micro-compositor for gaming that provides features
+           like resolution spoofing, upscaling with FSR/NIS, and frame limiting.
+          EOF
+          
+          dpkg-deb --build package gamescope.deb
+      
+      - name: Upload DEB package
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamescope-deb-package
+          path: gamescope.deb
+          retention-days: 90
+
+  build-deb-vendored:
+    name: DEB Package with Vendored Dependencies
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    steps:
+      - name: Prepare
+        run: |
+          apt-get update
+          apt-get install -y \
+            git meson ninja-build gcc g++ pkg-config cmake \
+            libwayland-dev wayland-protocols libxkbcommon-dev \
+            libcap-dev libdrm-dev libvulkan-dev glslang-tools \
+            libpipewire-0.3-dev libdisplay-info-dev libavif-dev \
+            libdecor-0-dev libinput-dev libxdamage-dev \
+            libxcomposite-dev libxrender-dev libxres-dev \
+            libxtst-dev libxmu-dev hwdata libseat-dev \
+            libliftoff-dev libei-dev libdecor-0-plugin-1-cairo \
+            libx11-dev libsdl2-dev libxcb1-dev libxcb-composite0-dev \
+            libxcb-res0-dev libxcb-ewmh-dev libxcb-icccm4-dev \
+            luajit libluajit-5.1-dev libx11-xcb-dev libpixman-1-dev \
+            libxcb-dri3-dev libxcb-present-dev libxcb-shm0-dev \
+            libxcb-xfixes0-dev libxshmfence-dev libxcb-sync-dev \
+            libxcb-randr0-dev libxcb-image0-dev \
+            liblcms2-dev xwayland dpkg-dev patchelf
+      
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Build
+        run: |
+          meson setup build/ --prefix=/usr --buildtype=release -Denable_openvr_support=false
+          ninja -C build/
+      
+      - name: Create DEB package with vendored libraries
+        run: |
+          # Install to a temporary directory first
+          DESTDIR=$PWD/install-tmp ninja -C build/ install
+          
+          mkdir -p package/DEBIAN package/usr/bin package/usr/lib/gamescope
+          
+          # Copy all installed binaries
+          cp install-tmp/usr/bin/gamescope package/usr/bin/
+          chmod +x package/usr/bin/gamescope
+          
+          # Copy gamescopereaper (should be installed now)
+          if [ -f install-tmp/usr/bin/gamescopereaper ]; then
+            cp install-tmp/usr/bin/gamescopereaper package/usr/bin/
+            chmod +x package/usr/bin/gamescopereaper
+          else
+            echo "WARNING: gamescopereaper not found in install"
+            ls -la install-tmp/usr/bin/
+          fi
+          
+          # Also copy gamescopectl if present
+          if [ -f install-tmp/usr/bin/gamescopectl ]; then
+            cp install-tmp/usr/bin/gamescopectl package/usr/bin/
+            chmod +x package/usr/bin/gamescopectl
+          fi
+          
+          # Find and copy all non-system shared libraries for gamescope
+          ldd build/src/gamescope | grep "=> /" | awk '{print $3}' | while read lib; do
+            case "$lib" in
+              /lib/x86_64-linux-gnu/libc.so* | \
+              /lib/x86_64-linux-gnu/libm.so* | \
+              /lib/x86_64-linux-gnu/libdl.so* | \
+              /lib/x86_64-linux-gnu/libpthread.so* | \
+              /lib/x86_64-linux-gnu/librt.so* | \
+              /lib64/ld-linux-x86-64.so* )
+                ;;
+              *)
+                if [ -f "$lib" ]; then
+                  cp -L "$lib" package/usr/lib/gamescope/
+                fi
+                ;;
+            esac
+          done
+          
+          # Patch all binaries to look in the vendored lib directory first
+          for binary in package/usr/bin/*; do
+            if [ -f "$binary" ] && [ -x "$binary" ]; then
+              patchelf --set-rpath '$ORIGIN/../lib/gamescope' "$binary" || true
+            fi
+          done
+          
+          cat > package/DEBIAN/control <<EOF
+          Package: gamescope-vendored
+          Version: 999.$(date +%Y%m%d)
+          Architecture: amd64
+          Maintainer: GitHub Actions <actions@github.com>
+          Depends: libc6, xwayland
+          Description: SteamOS session compositing window manager (vendored dependencies)
+           Gamescope is a micro-compositor for gaming that provides features
+           like resolution spoofing, upscaling with FSR/NIS, and frame limiting.
+           .
+           This package includes vendored copies of most dependencies for
+           maximum portability across Debian-based systems.
+          EOF
+          
+          dpkg-deb --build package gamescope-vendored.deb
+      
+      - name: Upload vendored DEB package
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamescope-deb-vendored
+          path: gamescope-vendored.deb
           retention-days: 90
